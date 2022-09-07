@@ -1,0 +1,14 @@
+name: smml
+channels:
+  - nodefaults
+dependencies:
+  - python
+  - ipython
+  - pandas
+  - scipy
+  - libboost
+  - pip
+  - pip:
+    - esig
+
+
