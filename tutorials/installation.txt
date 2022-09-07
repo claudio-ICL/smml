@@ -1,0 +1,14 @@
+ 2003  pwd
+ 2004  cd Documents/
+ 2005  mkdir mynewsignatureproject
+ 2006  cd mynewsignatureproject/
+ 2007  pwd
+ 2008  git clone git@github.com:claudio-ICL/smml.git # This assumes that you have a SSH connection
+ 2009  ls
+ 2010  cd smml/
+ 2011  ls
+ 2013  conda env create -f ./smml/smml.yml 
+ 2014  conda develop -n smml . # Mind the level! Here we are inside the uppermost smml direcotry, which contains a subdirectory called smml
+ 2015  cd smml
+ 2016  conda activate smml
+ 2017  python tests/main.py  # This will run a few tests. It is likely that some will fail and this is due to the limitations of esig. Please refer to the directory questions
