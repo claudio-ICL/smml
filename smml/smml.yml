@@ -1,14 +1,20 @@
 name: smml
 channels:
   - nodefaults
+  - conda-forge
+  - pytorch
 dependencies:
   - python
   - ipython
+  - ipykernel
+  - numpy
   - pandas
   - scipy
+  - pytorch::pytorch
   - libboost
   - pip
   - pip:
     - esig
+    - notebook
 
 
