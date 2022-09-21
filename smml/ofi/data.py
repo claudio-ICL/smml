@@ -1,4 +1,4 @@
-from typing import Dict, Union, Callable
+from typing import Dict, Union, Callable, Optional
 from pathlib import Path
 import datetime
 from enum import Enum
@@ -53,8 +53,17 @@ class LobsterData:
         self.id: LobsterDataIdentifier = ldi
         self.df: pd.DataFrame = load_orderbook_and_message(ldi)
 
-    def unique_time_ob(self, rolling_window: int) -> pd.DataFrame:
-        return unique_time_ob(self.df, rolling_window, levels=self.id.levels)
+    def unique_time_ob(self,
+                       t0: Optional[int] = None,
+                       t1: Optional[int] = None,
+                       alpha: float = .00035,
+                       ) -> pd.DataFrame:
+        t0 = t0 or self.df['time'].iloc[0]
+        t1 = t1 or self.df['time'].iloc[-1]
+        idx = (t0 <= self.df['time']) & (
+            self.df['time'] <= t1)
+        df: pd.DataFrame = pd.DataFrame(self.df.loc[idx])
+        return unique_time_ob(df, alpha=alpha, levels=self.id.levels)
 
 
 def _file_path(ldi: LobsterDataIdentifier) -> Path:
@@ -107,6 +116,20 @@ def _volume_cols(levels: int) -> pd.Index:
     return pd.Index(cols)
 
 
+def _bid_volume_cols(levels: int) -> pd.Index:
+    def bid_volume(n): return f'bid_volume_{n}'
+    bid_cols: list[str] = [
+        bid_volume(n) for n in range(levels, 0, -1)]
+    return pd.Index(bid_cols)
+
+
+def _ask_volume_cols(levels: int) -> pd.Index:
+    def ask_volume(n): return f'ask_volume_{n}'
+    ask_cols: list[str] = [
+        ask_volume(n) for n in range(1, levels+1)]
+    return pd.Index(ask_cols)
+
+
 def _message_cols() -> pd.Index:
     return pd.Index(list(constants.message_cols))
 
@@ -115,13 +138,13 @@ def load_orderbook(ldi: LobsterDataIdentifier) -> pd.DataFrame:
     fp: Path = orderbook_file_path(ldi)
     df: pd.DataFrame = pd.DataFrame(
         pd.read_csv(
-            fp, header=None, index_col=None)  # type: ignore
+            fp, header=None, index_col=None)
     )
     df.columns = _orderbook_cols(ldi.levels)
     df.insert(0, 'mid_price',
-              (df['ask_price_1'] + df['bid_price_1']) // 2)  # type: ignore
+              (df['ask_price_1'] + df['bid_price_1']) // 2)
     df.insert(1, 'mid_price_delta',
-              df['mid_price'].diff().fillna(0).astype(int))  # type:ignore
+              df['mid_price'].diff().fillna(0).astype(int))
     return df
 
 
@@ -129,13 +152,13 @@ def load_message(ldi: LobsterDataIdentifier) -> pd.DataFrame:
     fp: Path = message_file_path(ldi)
     df: pd.DataFrame = pd.DataFrame(
         pd.read_csv(
-            fp, header=None, index_col=None,  # type: ignore
+            fp, header=None, index_col=None,
         )
     )
     df.columns = _message_cols()
-    # time is expressed as integers representing nanoseconds after market open
-    df['time'] = ((df['time'] - df['time'].min())  # type: ignore
-                  * 1e7).fillna(-1).astype(np.int64)  # type: ignore
+    # time is expressed as integers representing nanosecond after market open
+    df['time'] = ((df['time'] - df['time'].min())
+                  * 1e9).fillna(-1).astype(np.int64)
     df.set_index(['time'], inplace=True)
     assert df.index.is_monotonic_increasing
     df.reset_index(inplace=True)
@@ -161,13 +184,13 @@ def load_orderbook_and_message(ldi: LobsterDataIdentifier) -> pd.DataFrame:
 
 def test_simultaneous_events(df: pd.DataFrame):
     for event_type, direction in zip(
-            df['event_type'], df['direction']):    # type: ignore
+            df['event_type'], df['direction']):
         assert len(str(event_type)) == len(str(direction))
 
 
 def unique_time_ob(
         df: pd.DataFrame,
-        rolling_window: int,
+        alpha: float = .00035,
         levels: int = 10,
 ) -> pd.DataFrame:
     agg: Dict[str, Union[Callable[..., int], 'str']] = {
@@ -186,45 +209,79 @@ def unique_time_ob(
     )
     st.reset_index(inplace=True)
     test_simultaneous_events(st)
-    st.rename(columns={'time': 'nanoseconds'}, inplace=True)
-    st['milliseconds'] = np.ceil(
-        st['nanoseconds'] / 1000).fillna(-1).astype(np.int64)  # type: ignore
-    st.sort_values(by='nanoseconds', inplace=True)
-    st['smooth_mid'] = st['mid_price'].rolling(  # type: ignore
-        rolling_window).mean()  # type: ignore
-    smid_delta = st['smooth_mid'].diff().fillna(0.)  # type: ignore
+    st.rename(columns={'time': 'nanosecond'}, inplace=True)
+    st['millisecond'] = np.ceil(
+        st['nanosecond'] / 1000000).fillna(-1).astype(np.int64)
+    st.sort_values(by='nanosecond', inplace=True)
+    st['smooth_mid'] = st['mid_price'].ewm(
+        alpha=alpha).mean()
+    smid_delta = st['smooth_mid'].diff().fillna(0.)
     smid_delta_sign = pd.Series(np.sign(smid_delta)).fillna(0).astype(np.int64)
+    assert len(smid_delta_sign.unique()) > 1
     st['bear_bull'] = smid_delta_sign.replace(
-        0, np.nan).ffill(downcast='infer').bfill(downcast='infer').astype(np.int64)  # type: ignore
+        0, np.nan).ffill(downcast='infer').bfill(  # type: ignore
+        downcast='infer').astype(np.int64)
+    st['segment_label'] = st['bear_bull'].diff().fillna(
+        0).abs().div(2).cumsum().astype(np.int64)
+    idx_bear = st['bear_bull'] == -1
+    idx_bull = st['bear_bull'] == 1
+    for seg in st.loc[idx_bull, 'segment_label'].unique():
+        idx = st['segment_label'].isin([seg])
+        idxmax = st.loc[idx, 'mid_price'].iloc[::-1].idxmax()
+        idx_change = idx & (st.index >= idxmax)
+        st.loc[idx_change, 'bear_bull'] = -1
+    for seg in st.loc[idx_bear, 'segment_label'].unique():
+        idx = st['segment_label'].isin([seg])
+        idxmin = st.loc[idx, 'mid_price'].iloc[::-1].idxmin()
+        idx_change = idx & (st.index >= idxmin)
+        st.loc[idx_change, 'bear_bull'] = 1
+
     obcols: list[str] = list(_orderbook_cols(levels))
-    sorted_cols: list[str] = list(constants.equispaced_event_cols) + obcols
+    sorted_cols: list[str] = list(constants.unique_time_event_cols) + obcols
     st = st.reindex(sorted_cols, axis=1)
     return st
+
+
+def _from_ob_to_volume_samples_dataframe(
+        orderbook: pd.DataFrame,  # output of unique_time_ob
+        levels: int = 3,
+) -> pd.DataFrame:
+    df: pd.DataFrame = orderbook.copy()
+    df['tot_vol'] = df.loc[:, _volume_cols(levels)].sum(axis=1)
+    for col in _volume_cols(levels):
+        df[col] = df[col].astype(np.float64).div(df['tot_vol'])
+    bid_cols = _bid_volume_cols((levels))
+    ask_cols = _ask_volume_cols((levels))
+    df['tot_bid_volume'] = df[bid_cols].sum(axis=1)
+    df['tot_ask_volume'] = df[ask_cols].sum(axis=1)
+    df['volume_imbalance'] = df['tot_bid_volume'] - df['tot_ask_volume']
+    df['path_label'] = df['bear_bull'].diff().fillna(
+        0).abs().div(2).cumsum().astype(np.int64)
+    sorted_cols: list[str] = list(
+        constants.volume_samples_event_cols) + list(_volume_cols(levels))
+    df = df.reindex(sorted_cols, axis=1)
+    return df
 
 
 def from_ob_to_volume_samples(
         orderbook: pd.DataFrame,  # output of unique_time_ob
         bear_bull: int = 1,
         levels: int = 3,
-        include_spread: bool = True,
+        include_volume_imbalance: bool = True,
 ) -> list[np.ndarray]:
-    df: pd.DataFrame = orderbook.copy()
-    idx_bear_bull = df['bear_bull'].isin([bear_bull])
-    assert idx_bear_bull.sum() > 0, f'No instances found'
-    df['spread'] = (df['ask_price_1'] - df['bid_price_1']) / \
-        100  # expressed in ticks
-    df['tot_vol'] = df.loc[:, _volume_cols(levels)].sum(axis=1)
-    for col in _volume_cols(levels):
-        df[col] = df[col].astype(np.float64).div(df['tot_vol'])
-    df['path_label'] = df['bear_bull'].diff().fillna(
-        0).abs().div(2).cumsum().astype(np.int64)
+    df: pd.DataFrame = _from_ob_to_volume_samples_dataframe(
+        orderbook=orderbook,
+        levels=levels,
+    )
     data_cols: list[str]
-    if include_spread:
-        data_cols = ['spread'] + list(_volume_cols(levels))
+    if include_volume_imbalance:
+        data_cols = ['volume_imbalance'] + list(_volume_cols(levels))
     else:
         data_cols = list(_volume_cols(levels))
     cols: list[str] = ['path_label'] + data_cols
-    samples = pd.DataFrame(df.loc[idx_bear_bull, cols].copy())
+    idx_bear_bull = df['bear_bull'].isin([bear_bull])
+    assert idx_bear_bull.sum() > 0, f'No instances found'
+    samples: pd.DataFrame = pd.DataFrame(df.loc[idx_bear_bull, cols].copy())
     paths: list[np.ndarray] = []
     for pl in samples['path_label'].unique():
         idx = samples['path_label'].isin([pl])

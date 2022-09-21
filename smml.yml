@@ -9,9 +9,9 @@ dependencies:
   - ipykernel
   - numpy
   - pandas
+  - matplotlib
   - scipy
   - pytorch::pytorch
-  - libboost
   - pip
   - pip:
     - esig

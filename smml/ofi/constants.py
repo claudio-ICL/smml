@@ -12,7 +12,7 @@ message_cols: tuple[str, str, str, str, str, str] = (
     'direction',
 )
 
-equispaced_event_cols: tuple[
+unique_time_event_cols: tuple[
     str,
     str,
     str,
@@ -32,4 +32,34 @@ equispaced_event_cols: tuple[
     'mid_price_delta',
     'smooth_mid',
     'bear_bull',
+)
+
+volume_samples_event_cols: tuple[
+    str,
+    str,
+    str,
+    str,
+    str,
+    str,
+    str,
+    str,
+    str,
+    str,
+    str,
+    str,
+    str,
+] = (
+    'nanoseconds',
+    'milliseconds',
+    'event_type',
+    'size',
+    'direction',
+    'mid_price',
+    'smooth_mid',
+    'bear_bull',
+    'path_label',
+    'tot_volume',
+    'tot_bid_volume',
+    'tot_ask_volume',
+    'volume_imbalance',
 )
