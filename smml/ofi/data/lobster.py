@@ -105,7 +105,7 @@ def _orderbook_cols(levels: int) -> pd.Index:
     return pd.Index(cols)
 
 
-def _volume_cols(levels: int) -> pd.Index:
+def volume_cols(levels: int) -> pd.Index:
     def ask_volume(n): return f'ask_volume_{n}'
     def bid_volume(n): return f'bid_volume_{n}'
     bid_cols: list[str] = [
@@ -116,21 +116,21 @@ def _volume_cols(levels: int) -> pd.Index:
     return pd.Index(cols)
 
 
-def _bid_volume_cols(levels: int) -> pd.Index:
+def bid_volume_cols(levels: int) -> pd.Index:
     def bid_volume(n): return f'bid_volume_{n}'
     bid_cols: list[str] = [
         bid_volume(n) for n in range(levels, 0, -1)]
     return pd.Index(bid_cols)
 
 
-def _ask_volume_cols(levels: int) -> pd.Index:
+def ask_volume_cols(levels: int) -> pd.Index:
     def ask_volume(n): return f'ask_volume_{n}'
     ask_cols: list[str] = [
         ask_volume(n) for n in range(1, levels+1)]
     return pd.Index(ask_cols)
 
 
-def _message_cols() -> pd.Index:
+def message_cols() -> pd.Index:
     return pd.Index(list(constants.message_cols))
 
 
@@ -155,7 +155,7 @@ def load_message(ldi: LobsterDataIdentifier) -> pd.DataFrame:
             fp, header=None, index_col=None,
         )
     )
-    df.columns = _message_cols()
+    df.columns = message_cols()
     # time is expressed as integers representing nanosecond after market open
     df['time'] = ((df['time'] - df['time'].min())
                   * 1e9).fillna(-1).astype(np.int64)
@@ -240,57 +240,3 @@ def unique_time_ob(
     sorted_cols: list[str] = list(constants.unique_time_event_cols) + obcols
     st = st.reindex(sorted_cols, axis=1)
     return st
-
-
-def _from_ob_to_volume_samples_dataframe(
-        orderbook: pd.DataFrame,  # output of unique_time_ob
-        levels: int = 3,
-) -> pd.DataFrame:
-    df: pd.DataFrame = orderbook.copy()
-    df['tot_vol'] = df.loc[:, _volume_cols(levels)].sum(axis=1)
-    for col in _volume_cols(levels):
-        df[col] = df[col].astype(np.float64).div(df['tot_vol'])
-    bid_cols = _bid_volume_cols((levels))
-    ask_cols = _ask_volume_cols((levels))
-    df['tot_bid_volume'] = df[bid_cols].sum(axis=1)
-    df['tot_ask_volume'] = df[ask_cols].sum(axis=1)
-    df['volume_imbalance'] = df['tot_bid_volume'] - df['tot_ask_volume']
-    df['path_label'] = df['bear_bull'].diff().fillna(
-        0).abs().div(2).cumsum().astype(np.int64)
-    sorted_cols: list[str] = list(
-        constants.volume_samples_event_cols) + list(_volume_cols(levels))
-    df = df.reindex(sorted_cols, axis=1)
-    return df
-
-
-def from_ob_to_volume_samples(
-        orderbook: pd.DataFrame,  # output of unique_time_ob
-        bear_bull: int = 1,
-        levels: int = 3,
-        include_volume_imbalance: bool = True,
-) -> list[np.ndarray]:
-    df: pd.DataFrame = _from_ob_to_volume_samples_dataframe(
-        orderbook=orderbook,
-        levels=levels,
-    )
-    data_cols: list[str]
-    if include_volume_imbalance:
-        data_cols = ['volume_imbalance'] + list(_volume_cols(levels))
-    else:
-        data_cols = list(_volume_cols(levels))
-    cols: list[str] = ['path_label'] + data_cols
-    idx_bear_bull = df['bear_bull'].isin([bear_bull])
-    assert idx_bear_bull.sum() > 0, f'No instances found'
-    samples: pd.DataFrame = pd.DataFrame(df.loc[idx_bear_bull, cols].copy())
-    paths: list[np.ndarray] = []
-    for pl in samples['path_label'].unique():
-        idx = samples['path_label'].isin([pl])
-        path: np.ndarray = np.expand_dims(
-            np.array(
-                samples.loc[idx, data_cols],
-                dtype=np.float64,
-            ),
-            axis=0,
-        )
-        paths.append(path)
-    return paths
