@@ -1,1 +1,1 @@
-from . import constants, data, donsker_varadhan  # NOQA
+from . import constants, data, donsker_varadhan, divergence  # NOQA
