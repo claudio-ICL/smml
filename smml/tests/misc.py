@@ -4,8 +4,8 @@ import numpy as np
 
 
 def index_conversion(
-    MAX_DIM: int = 12,
-    MAX_LEVEL: int = 16,
+    MAX_DIM: int = 6,
+    MAX_LEVEL: int = 8,
 ):
     dim: int = 2 + np.random.choice(MAX_DIM - 1)
     n: int
@@ -25,7 +25,8 @@ def index_conversion(
     n = misc.sequential_index(alpha, dim)
     siglevel: int = max(2, len(alpha))
     try:
-        sigkeys: list[str] = ts.sigkeys(dim, siglevel).split(' ')[1:]  # NOQA
+        sigkeys: list[str] = ts.sigkeys(dim, siglevel).split(' ')[
+            1:]  # type: ignore
     except (RuntimeError, SystemError) as e:
         print(e)
         print(f'dim = {dim}')

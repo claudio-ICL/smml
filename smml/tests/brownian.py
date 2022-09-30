@@ -7,8 +7,8 @@ import numpy as np
 
 def symmetric_part(
     dim: Optional[int] = None,
-    MAX_DIM: int = 8,
-    MAX_LEVEL: int = 8,
+    MAX_DIM: int = 6,
+    MAX_LEVEL: int = 5,
     atol=1e-9,
     rtol=1e-12,
 ):
@@ -25,7 +25,7 @@ def symmetric_part(
     )
     siglevel: int = max(2, len(alpha))
     try:
-        SX: np.ndarray = ts.stream2sig(X, siglevel)  # NOQA
+        SX: np.ndarray = ts.stream2sig(X, siglevel)  # type: ignore
     except (RuntimeError, SystemError) as e:
         print('Could not compute signature')
         print(e)
